@@ -1,0 +1,88 @@
+diff --git a/0_preprocess_training_data.py b/0_preprocess_training_data.py
+index acc4820..522e862 100644
+--- a/0_preprocess_training_data.py
++++ b/0_preprocess_training_data.py
+@@ -25,8 +25,8 @@ from egoallo.data.amass import EgoTrainingData
+ 
+ 
+ def main(
+-    smplh_npz_path: Path = Path("./data/smplh/neutral/model.npz"),
+-    data_npz_dir: Path = Path("./data/processed_30fps_no_skating/"),
++    smplh_npz_path: Path = Path("/nvmessd/ssd_share/tengbo/humor/body_models/smplh/neutral/model.npz"),
++    data_npz_dir: Path = Path("/nvmessd/ssd_share/tengbo/humor/data/amass_processed/ACCAD"),
+     output_file: Path = Path("./data/egoalgo_no_skating_dataset.hdf5"),
+     output_list_file: Path = Path("./data/egoalgo_no_skating_dataset_files.txt"),
+     include_hands: bool = True,
+@@ -59,7 +59,7 @@ def main(
+                 device_body_model, npz_path, include_hands=include_hands
+             )
+ 
+-            assert "neutral" in str(npz_path)
++            # assert "neutral" in str(npz_path)
+             group_name = str(npz_path).rpartition("neutral/")[2]
+             print(f"Writing to group {group_name} on {device_idx}...")
+             group = output_hdf5.create_group(group_name)
+diff --git a/download_checkpoint_and_data.sh b/download_checkpoint_and_data.sh
+old mode 100644
+new mode 100755
+diff --git a/src/egoallo/data/amass.py b/src/egoallo/data/amass.py
+index 8f8bda4..a851f17 100644
+--- a/src/egoallo/data/amass.py
++++ b/src/egoallo/data/amass.py
+@@ -103,6 +103,7 @@ class EgoAmassHdf5Dataset(torch.utils.data.Dataset[EgoTrainingData]):
+                 # and not p.endswith("KIT/424/run02_poses.npz")
+             ]
+             self._subseq_len = subseq_len
++            print(self._groups)
+             assert len(self._groups) > 0
+             assert len(cast(h5py.Group, hdf5_file[self._groups[0]]).keys()) > 0
+ 
+diff --git a/src/egoallo/data/dataclass.py b/src/egoallo/data/dataclass.py
+index 2744057..fec13b4 100644
+--- a/src/egoallo/data/dataclass.py
++++ b/src/egoallo/data/dataclass.py
+@@ -22,8 +22,8 @@ class EgoTrainingData(TensorDataclass):
+     contacts: Float[Tensor, "*#batch timesteps 21"]
+     """Contact boolean for each joint."""
+ 
+-    betas: Float[Tensor, "*#batch 1 16"]
+-    """Body shape parameters."""
++    betas: Float[Tensor, "*#batch ... 16"]
++    """Body shape parameters. Can be shaped as [batch, 1, 16] or [batch, 16]."""
+ 
+     # Excluded because not needed.
+     # joints_wrt_world: Float[Tensor, "*#batch timesteps 21 3"]
+@@ -63,7 +63,7 @@ class EgoTrainingData(TensorDataclass):
+         """Load a single trajectory from a (processed_30fps) npz file."""
+         raw_fields = {
+             k: torch.from_numpy(v.astype(np.float32) if v.dtype == np.float64 else v)
+-            for k, v in np.load(path).items()
++            for k, v in np.load(path, allow_pickle=True).items()
+             if v.dtype in (np.float32, np.float64)
+         }
+ 
+@@ -84,7 +84,14 @@ class EgoTrainingData(TensorDataclass):
+         hand_quats = tf.SO3.exp(raw_fields["pose_hand"].reshape(timesteps, 30, 3)).wxyz
+ 
+         device = body_model.weights.device
+-        shaped = body_model.with_shape(raw_fields["betas"][0:1, :].to(device))
++        
++        # Handle different shapes of the betas tensor
++        betas_tensor = raw_fields["betas"]
++        if len(betas_tensor.shape) == 1:
++            # If betas is 1D (16,), reshape it to (1, 16)
++            betas_tensor = betas_tensor.unsqueeze(0)
++        
++        shaped = body_model.with_shape(betas_tensor.to(device))
+ 
+         # Batch the SMPL body model operations, this can be pretty memory-intensive...
+         posed = shaped.with_pose_decomposed(
+@@ -100,7 +107,7 @@ class EgoTrainingData(TensorDataclass):
+         return EgoTrainingData(
+             T_world_root=T_world_root[1:].cpu(),
+             contacts=raw_fields["contacts"][1:, 1:].cpu(),  # Root is no longer a joint.
+-            betas=raw_fields["betas"][0:1, :].cpu(),
++            betas=betas_tensor.cpu(),
+             # joints_wrt_world=raw_fields["joints"][
+             #     1:, 1:
+             # ].cpu(),  # Root is no longer a joint.

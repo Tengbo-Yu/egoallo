@@ -1,0 +1,18 @@
+!!python/object:egoallo.network.EgoDenoiserConfig
+activation: gelu
+cond_param: ours
+d_feedforward: 2048
+d_latent: 512
+d_noise_emb: 1024
+decoder_layers: 6
+dropout_p: 0.0
+encoder_layers: 6
+fourier_enc_freqs: 3
+include_canonicalized_cpf_rotation_in_cond: true
+include_hand_positions_cond: false
+include_hands: true
+max_t: 1000
+noise_conditioning: token
+num_heads: 4
+positional_encoding: rope
+xattn_mode: kv_from_cond_q_from_x

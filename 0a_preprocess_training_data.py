@@ -32,8 +32,8 @@ from egoallo.preprocessing.util import move_to
 
 AMASS_SPLITS = {
     "train": [
-        "ACCAD",
         "BMLhandball",
+        "ACCAD",
         "BMLmovi",
         "BioMotionLab_NTroje",
         "CMU",
@@ -728,10 +728,9 @@ def find_ext_recursive(root, ext=".npz"):
     paths = []
     for curdir, _, files in os.walk(root):
         for f in files:
-            if f.endswith(ext):
+            if f.endswith(ext) and f.endswith("_poses.npz"):
                 paths.append(f"{curdir}/{f}")
     return paths
-
 
 @dataclasses.dataclass
 class Config:

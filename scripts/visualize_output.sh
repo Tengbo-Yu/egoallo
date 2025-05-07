@@ -1,0 +1,1 @@
+python 4_visualize_outputs.py --search-root-dir ./egoallo_example_trajectories

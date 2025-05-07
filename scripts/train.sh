@@ -1,0 +1,1 @@
+python 1_train_motion_prior.py --config.experiment-name debug --config.dataset-hdf5-path /nvmessd/ssd_share/tengbo/egoallo/data/egoalgo_no_skating_dataset.hdf5  --config.dataset-files-path /nvmessd/ssd_share/tengbo/egoallo/data/egoalgo_no_skating_dataset_files.txt

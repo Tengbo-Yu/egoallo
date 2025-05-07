@@ -1,0 +1,1 @@
+python 3_aria_inference.py --traj-root ./egoallo_example_trajectories/coffeemachine

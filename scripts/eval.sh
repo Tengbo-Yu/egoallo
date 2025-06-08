@@ -1,0 +1,3 @@
+CUDA_VISIBLE_DEVICES=3 python 5_eval_body_metrics.py --dataset-hdf5-path /nvmessd/ssd_share/tengbo/egoallo/data/test/egoalgo_no_skating_dataset.hdf5 --dataset-files-path /nvmessd/ssd_share/tengbo/egoallo/data/test/egoalgo_no_skating_dataset_files.txt --checkpoint-dir /nvmessd/ssd_share/tengbo/egoallo/experiments/egoallo_0509/v2/checkpoints_100000/
+
+# CUDA_VISIBLE_DEVICES=3 python 5_eval_body_metrics.py --dataset-hdf5-path /nvmessd/ssd_share/tengbo/egoallo/data/test/egoalgo_no_skating_dataset.hdf5 --dataset-files-path /nvmessd/ssd_share/tengbo/egoallo/data/test/egoalgo_no_skating_dataset_files.txt --checkpoint-dir /nvmessd/ssd_share/tengbo/egoallo/egoallo_checkpoint_april13/checkpoints_3000000

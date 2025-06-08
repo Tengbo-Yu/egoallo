@@ -164,7 +164,7 @@ def get_git_commit_hash(cwd: Path | None = None) -> str:
         cwd = Path.cwd()
     return (
         subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=cwd.as_posix())
-        .decode("ascii")
+        .decode("utf-8", errors="replace")
         .strip()
     )
 
@@ -175,6 +175,6 @@ def get_git_diff(cwd: Path | None = None) -> str:
         cwd = Path.cwd()
     return (
         subprocess.check_output(["git", "diff", "HEAD"], cwd=cwd.as_posix())
-        .decode("ascii")
+        .decode("utf-8", errors="replace")
         .strip()
     )

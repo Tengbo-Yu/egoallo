@@ -45,7 +45,7 @@ def do_guidance_optimization(
 
     assert traj.hand_rotmats is not None
     guidance_params = JaxGuidanceParams.defaults(guidance_mode, phase)
-
+    # print(f"guidance_params: {guidance_params}")
     start_time = time.time()
     quats, debug_info = _optimize_vmapped(
         body=fncsmpl_jax.SmplhModel(
@@ -111,7 +111,6 @@ class _SmplhSingleHandPosesVar(
     tangent_dim=15 * 3,
 ):
     """Variable containing local joint poses for one hand of a SMPL-H human."""
-
 
 @jdc.jit
 def _optimize_vmapped(
@@ -871,7 +870,8 @@ def _optimize(
         trust_region=jaxls.TrustRegionConfig(
             lambda_initial=guidance_params.lambda_initial
         ),
-        termination=jaxls.TerminationConfig(max_iterations=guidance_params.max_iters),
+        # termination=jaxls.TerminationConfig(max_iterations=guidance_params.max_iters),
+        termination=jaxls.TerminationConfig(max_iterations=5),
         verbose=verbose,
     )
     out_body_quats = solutions[_SmplhBodyPosesVar]

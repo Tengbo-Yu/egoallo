@@ -4,6 +4,7 @@ import dataclasses
 import shutil
 from pathlib import Path
 from typing import Literal
+import sys
 
 import tensorboardX
 import torch.optim.lr_scheduler
@@ -13,6 +14,7 @@ import yaml
 from accelerate import Accelerator, DataLoaderConfiguration
 from accelerate.utils import ProjectConfiguration
 from loguru import logger
+import wandb
 
 from egoallo import network, training_loss, training_utils
 from egoallo.data.amass import EgoAmassHdf5Dataset
@@ -97,6 +99,14 @@ def run_training(
         (experiment_dir / "git_diff.txt").write_text(training_utils.get_git_diff())
         (experiment_dir / "run_config.yaml").write_text(yaml.dump(config))
         (experiment_dir / "model_config.yaml").write_text(yaml.dump(config.model))
+        
+        # 初始化wandb
+        wandb.init(
+            project="egoallo",
+            name=config.experiment_name,
+            config=training_utils.flattened_hparam_dict_from_dataclass(config),
+            dir=str(experiment_dir),
+        )
 
         # Add hyperparameters to TensorBoard.
         assert writer is not None
@@ -171,14 +181,68 @@ def run_training(
             loop_metrics = next(loop_metrics_gen)
             step = loop_metrics.counter
 
-            loss, log_outputs = loss_helper.compute_denoising_loss(
-                model,
-                unwrapped_model=accelerator.unwrap_model(model),
-                train_batch=train_batch,
-            )
+            try:
+                loss, log_outputs = loss_helper.compute_denoising_loss(
+                    model,
+                    unwrapped_model=accelerator.unwrap_model(model),
+                    train_batch=train_batch,
+                )
+                
+                # 检查loss是否为nan，如果是则退出
+                if torch.isnan(loss).item():
+                    logger.error(f"NaN loss detected at step {step}, exiting training")
+                    if accelerator.is_main_process:
+                        # 保存最后一个checkpoint
+                        checkpoint_path = experiment_dir / f"checkpoints_{step}_nan_detected"
+                        accelerator.save_state(str(checkpoint_path))
+                        logger.info(f"Saved checkpoint before exit at {checkpoint_path}")
+                    sys.exit(1)
+            except ValueError as e:
+                if "NaN detected in loss term:" in str(e):
+                    logger.error(f"Step {step}: {str(e)}, exiting training")
+                    if accelerator.is_main_process:
+                        # 保存最后一个checkpoint
+                        checkpoint_path = experiment_dir / f"checkpoints_{step}_nan_detected"
+                        accelerator.save_state(str(checkpoint_path))
+                        logger.info(f"Saved checkpoint before exit at {checkpoint_path}")
+                    sys.exit(1)
+                else:
+                    # 其他类型的ValueError，重新抛出
+                    raise
+                
             log_outputs["learning_rate"] = scheduler.get_last_lr()[0]
             accelerator.log(log_outputs, step=step)
             accelerator.backward(loss)
+            
+            # 监控梯度
+            if accelerator.is_main_process and step % 100 == 0:
+                # 记录梯度范数
+                total_grad_norm = 0.0
+                param_grad_norms = {}
+                
+                # 分别计算每个参数组的梯度范数
+                for name, param in accelerator.unwrap_model(model).named_parameters():
+                    if param.grad is not None:
+                        param_grad = param.grad.data
+                        param_norm = param_grad.norm(2).item()
+                        total_grad_norm += param_norm ** 2
+                        
+                        # 只监控关键参数
+                        if any(key in name for key in ['encoder', 'decoder', 'film']):
+                            shortened_name = name.replace('encoder.', '').replace('decoder.', '')
+                            param_grad_norms[f"grad_norm/{shortened_name}"] = param_norm
+                
+                total_grad_norm = total_grad_norm ** 0.5
+                
+                # 记录到wandb
+                if wandb.run is not None:
+                    wandb.log({"train/grad_norm_total": total_grad_norm}, step=step)
+                    
+                    # 记录选定参数的梯度范数
+                    for grad_name, grad_value in param_grad_norms.items():
+                        if not torch.isnan(torch.tensor(grad_value)) and not torch.isinf(torch.tensor(grad_value)):
+                            wandb.log({f"train/{grad_name}": grad_value}, step=step)
+            
             if accelerator.sync_gradients:
                 accelerator.clip_grad_norm_(model.parameters(), config.max_grad_norm)
             optim.step()
@@ -194,9 +258,30 @@ def run_training(
                 assert writer is not None
                 for k, v in log_outputs.items():
                     writer.add_scalar(k, v, step)
+                
+                # wandb记录各损失项及总损失
+                if accelerator.is_main_process:
+                    # 准备wandb日志字典
+                    wandb_log = {
+                        "train/step": step,
+                        "train/loss": loss.item(),
+                        "train/learning_rate": scheduler.get_last_lr()[0]
+                    }
+                    
+                    # 添加各损失项
+                    for k, v in log_outputs.items():
+                        if k.startswith("loss_term/"):
+                            component_name = k.split("/")[1]  # 提取损失组件名称
+                            if isinstance(v, torch.Tensor):
+                                wandb_log[f"train/loss_components/{component_name}"] = v.item()
+                            else:
+                                wandb_log[f"train/loss_components/{component_name}"] = v
+                    
+                    # 记录到wandb
+                    wandb.log(wandb_log, step=step)
 
             # Print status update to terminal.
-            if step % 20 == 0:
+            if step % 100 == 0:
                 mem_free, mem_total = torch.cuda.mem_get_info()
                 logger.info(
                     f"step: {step} ({loop_metrics.iterations_per_sec:.2f} it/sec)"
@@ -217,6 +302,10 @@ def run_training(
                     shutil.rmtree(prev_checkpoint_path)
                 prev_checkpoint_path = None if step % 100_000 == 0 else checkpoint_path
                 del checkpoint_path
+
+    # 关闭wandb
+    if accelerator.is_main_process:
+        wandb.finish()
 
 
 if __name__ == "__main__":

@@ -241,6 +241,31 @@ class TrainingLossComputer:
             loss_terms["hand_rotmats"] = 0.0
 
         assert loss_terms.keys() == self.config.loss_weights.keys()
+        
+        # 检查各损失项是否为NaN
+        for name, term in loss_terms.items():
+            if isinstance(term, Tensor) and torch.isnan(term).any():
+                raise ValueError(f"NaN detected in loss term: {name}")
+
+        # 记录用于调试的中间值
+        debug_info = {
+            # 记录一些可能导致NaN的关键张量值
+            "debug/weight_t_min": torch.min(weight_t).item(),
+            "debug/weight_t_max": torch.max(weight_t).item(),
+            "debug/weight_t_mean": torch.mean(weight_t).item(),
+            "debug/mask_sum": torch.sum(train_batch.mask).item(),
+        }
+        
+        # 如果包含手部，记录手部相关信息
+        if unwrapped_model.config.include_hands and isinstance(hand_bt_mask, Tensor):
+            hand_mask_sum = torch.sum(hand_bt_mask).item()
+            debug_info.update({
+                "debug/hand_mask_sum": hand_mask_sum,
+                "debug/hand_motion_ratio": torch.sum(hand_motion).item() / batch,
+            })
+            
+        # 将调试信息添加到日志输出
+        log_outputs.update(debug_info)
 
         # Log loss terms.
         for name, term in loss_terms.items():
